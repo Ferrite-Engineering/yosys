@@ -148,7 +148,7 @@ struct CheckPass : public Pass {
 					if (!cell->get_bool_attribute(ID::always_latch) && (
 						cell->type.in(ID($dlatch), ID($adlatch), ID($dlatchsr)) ||
 						cell->type.begins_with("$_DLATCH_") || cell->type.begins_with("$_DLATCHSR_"))) {
-						log_warning("Cell %s.%s is a latch of type %s.\n", module, cell, cell->type.unescape());
+						log_file_warning(cell->get_src_location(), "Cell %s.%s is a latch of type %s.\n", module, cell, cell->type.unescape());
 						counter++;
 					}
 				continue;
@@ -302,13 +302,13 @@ struct CheckPass : public Pass {
 			for (auto cell : module->cells())
 			{
 				if (cell->type.begins_with("$") && !yosys_celltypes.cell_known(cell->type) && design->module(cell->type) == nullptr) {
-					log_warning("Cell %s.%s has unknown internal type %s.\n", module, cell, cell->type.unescape());
+					log_file_warning(cell->get_src_location(), "Cell %s.%s has unknown internal type %s.\n", module, cell, cell->type.unescape());
 					counter++;
 				}
 
 				if (mapped && cell->type.begins_with("$") && design->module(cell->type) == nullptr) {
 					if (allow_tbuf && cell->type == ID($_TBUF_)) goto cell_allowed;
-					log_warning("Cell %s.%s is an unmapped internal cell of type %s.\n", module, cell, cell->type.unescape());
+					log_file_warning(cell->get_src_location(), "Cell %s.%s is an unmapped internal cell of type %s.\n", module, cell, cell->type.unescape());
 					counter++;
 				cell_allowed:;
 				}
@@ -318,7 +318,7 @@ struct CheckPass : public Pass {
 					cell->type.in(ID($dlatch), ID($adlatch), ID($dlatchsr)) ||
 					cell->type.begins_with("$_DLATCH_") || cell->type.begins_with("$_DLATCHSR_"))
 				) {
-					log_warning("Cell %s.%s is a latch of type %s.\n", module, cell, cell->type.unescape());
+					log_file_warning(cell->get_src_location(), "Cell %s.%s is a latch of type %s.\n", module, cell, cell->type.unescape());
 					counter++;
 				}
 
@@ -370,7 +370,7 @@ struct CheckPass : public Pass {
 						if (initval[i] == State::S0 || initval[i] == State::S1)
 							init_bits.insert(sigmap(SigBit(wire, i)));
 					if (noinit) {
-						log_warning("Wire %s.%s has an unprocessed 'init' attribute.\n", module, wire);
+						log_file_warning(wire->get_src_location(), "Wire %s.%s has an unprocessed 'init' attribute.\n", module, wire);
 						counter++;
 					}
 				}
@@ -381,7 +381,10 @@ struct CheckPass : public Pass {
 					string message = stringf("Drivers conflicting with a constant %s driver:\n", log_signal(state));
 					for (auto str : wire_drivers[state])
 						message += stringf("    %s\n", str);
-					log_warning("%s", message);
+					LogSourceLocation src;
+					if (driver_cells.count(state))
+						src = driver_cells.at(state)->get_src_location();
+					log_file_warning(src, "%s", message);
 					counter++;
 				}
 
@@ -390,13 +393,19 @@ struct CheckPass : public Pass {
 					string message = stringf("multiple conflicting drivers for %s.%s:\n", module, log_signal(it.first));
 					for (auto str : it.second)
 						message += stringf("    %s\n", str);
-					log_warning("%s", message);
+					// Locate the problem at the wire if it has a src, otherwise at a driving cell
+					LogSourceLocation src;
+					if (it.first.wire)
+						src = it.first.wire->get_src_location();
+					if (src.filename.empty() && driver_cells.count(it.first))
+						src = driver_cells.at(it.first)->get_src_location();
+					log_file_warning(src, "%s", message);
 					counter++;
 				}
 
 			for (auto bit : used_wires)
 				if (!wire_drivers.count(bit)) {
-					log_warning("Wire %s.%s is used but has no driver.\n", module, log_signal(bit));
+					log_file_warning(bit.wire->get_src_location(), "Wire %s.%s is used but has no driver.\n", module, log_signal(bit));
 					counter++;
 				}
 
@@ -415,6 +424,9 @@ struct CheckPass : public Pass {
 					break;
 				}
 				log_assert(prev != SigBit());
+
+				// Located at the first driving cell in the loop that has a src
+				LogSourceLocation loop_src;
 
 				for (auto &pair : loop) {
 					if (pair.second == -1)
@@ -449,6 +461,9 @@ struct CheckPass : public Pass {
 					log_assert(driver_cells.count(bit));
 					Cell *driver = driver_cells.at(bit);
 
+					if (loop_src.filename.empty())
+						loop_src = driver->get_src_location();
+
 					std::string driver_src;
 					if (driver->has_attribute(ID::src)) {
 						std::string src_attr = driver->get_src_attribute();
@@ -476,7 +491,7 @@ struct CheckPass : public Pass {
 
 					prev = bit;
 				}
-				log_warning("%s", message);
+				log_file_warning(loop_src, "%s", message);
 				counter++;
 			}
 
@@ -495,7 +510,7 @@ struct CheckPass : public Pass {
 				init_sig.sort_and_unify();
 
 				for (auto chunk : init_sig.chunks()) {
-					log_warning("Wire %s.%s has 'init' attribute and is not driven by an FF cell.\n", module, log_signal(chunk));
+					log_file_warning(chunk.wire ? chunk.wire->get_src_location() : LogSourceLocation{}, "Wire %s.%s has 'init' attribute and is not driven by an FF cell.\n", module, log_signal(chunk));
 					counter++;
 				}
 			}

@@ -1,0 +1,11 @@
+# hierarchy attaches the src attribute of the offending cell to its errors
+read_rtlil <<EOF
+module \top
+  attribute \src "test.v:12.1-12.30"
+  cell \missing \inst
+  end
+end
+EOF
+
+logger -expect prefix-error "test.v:12: ERROR: Module `\\\\missing' referenced in module `\\\\top' in cell `\\\\inst' is not part of the design." 1
+hierarchy -check -top top

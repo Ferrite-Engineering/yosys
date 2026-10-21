@@ -658,6 +658,33 @@ struct RTLIL::AttrObject
 		return get_string_attribute(ID::src);
 	}
 
+	// Parse the 'src' attribute into a location for log_file_warning() and
+	// friends. Returns an empty location if there is no src attribute or it
+	// doesn't have the form "file:line[.col][-line[.col]]". If the attribute
+	// lists several locations separated by '|', the first one is used.
+	LogSourceLocation get_src_location() const {
+		if (!has_attribute(ID::src))
+			return LogSourceLocation{};
+		std::string src = get_src_attribute();
+		src = src.substr(0, src.find('|'));
+		size_t colon = src.rfind(':');
+		if (colon == std::string::npos || colon == 0)
+			return LogSourceLocation{};
+		std::string filename = src.substr(0, colon);
+		int start_line = -1, start_col = -1, end_line = -1, end_col = -1;
+		const char *range = src.c_str() + colon + 1;
+		int nparsed = sscanf(range, "%d.%d-%d.%d", &start_line, &start_col, &end_line, &end_col);
+		if (nparsed < 1) {
+			return LogSourceLocation{};
+		} else if (nparsed == 1) {
+			return LogSourceLocation(filename, start_line);
+		} else if (nparsed == 4) {
+			return LogSourceLocation(filename, start_line, start_col, end_line, end_col);
+		} else {
+			return LogSourceLocation(filename, start_line, start_col, start_line, start_col);
+		}
+	}
+
 	void set_hdlname_attribute(const vector<string> &hierarchy);
 	vector<string> get_hdlname_attribute() const;
 

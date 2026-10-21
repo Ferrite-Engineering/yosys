@@ -392,7 +392,7 @@ RTLIL::Module *get_module(RTLIL::Design                  &design,
 	// must at least be known cell types.
 	if (cell_type[0] == '$') {
 		if (check && !yosys_celltypes.cell_known(cell.type))
-			log_error("Cell type `%s' referenced in module `%s' in cell `%s' is neither a known internal cell type nor part of the design.\n",
+			log_file_error(cell.get_src_location(), "Cell type `%s' referenced in module `%s' in cell `%s' is neither a known internal cell type nor part of the design.\n",
 			          cell_type.c_str(), parent.name, cell.name);
 		return nullptr;
 	}
@@ -421,7 +421,7 @@ RTLIL::Module *get_module(RTLIL::Design                  &design,
 
 	// We couldn't find the module anywhere. Complain if check is set.
 	if (check)
-		log_error("Module `%s' referenced in module `%s' in cell `%s' is not part of the design.\n",
+		log_file_error(cell.get_src_location(), "Module `%s' referenced in module `%s' in cell `%s' is not part of the design.\n",
 		          cell_type.c_str(), parent.name.str().data(), cell.name);
 
 	return nullptr;
@@ -439,7 +439,7 @@ void check_cell_connections(const RTLIL::Module &module, RTLIL::Cell &cell, RTLI
 	for (auto &conn : cell.connections()) {
 		if (read_id_num(*module.design, conn.first, &id)) {
 			if (id <= 0 || id > GetSize(mod.ports))
-				log_error("Module `%s' referenced in module `%s' in cell `%s' "
+				log_file_error(cell.get_src_location(), "Module `%s' referenced in module `%s' in cell `%s' "
 				          "has only %d ports, requested port %d.\n",
 				          cell.type.unescape(), &module, &cell,
 				          GetSize(mod.ports), id);
@@ -448,7 +448,7 @@ void check_cell_connections(const RTLIL::Module &module, RTLIL::Cell &cell, RTLI
 
 		const RTLIL::Wire* wire = mod.wire(conn.first);
 		if (!wire || wire->port_id == 0) {
-			log_error("Module `%s' referenced in module `%s' in cell `%s' "
+			log_file_error(cell.get_src_location(), "Module `%s' referenced in module `%s' in cell `%s' "
 			          "does not have a port named '%s'.\n",
 			          cell.type.unescape(), &module, &cell,
 			          PooledName(module.design, conn.first).unescape());
@@ -457,7 +457,7 @@ void check_cell_connections(const RTLIL::Module &module, RTLIL::Cell &cell, RTLI
 	for (auto &param : cell.parameters) {
 		if (read_id_num(*module.design, param.first, &id)) {
 			if (id <= 0 || id > GetSize(mod.avail_parameters))
-				log_error("Module `%s' referenced in module `%s' in cell `%s' "
+				log_file_error(cell.get_src_location(), "Module `%s' referenced in module `%s' in cell `%s' "
 				          "has only %d parameters, requested parameter %d.\n",
 				          cell.type.unescape(), &module, &cell,
 				          GetSize(mod.avail_parameters), id);
@@ -468,7 +468,7 @@ void check_cell_connections(const RTLIL::Module &module, RTLIL::Cell &cell, RTLI
 		if (mod.avail_parameters.count(param.first) == 0 &&
 		    param_name[0] != '$' &&
 		    param_name.find('.') == std::string::npos) {
-			log_error("Module `%s' referenced in module `%s' in cell `%s' "
+			log_file_error(cell.get_src_location(), "Module `%s' referenced in module `%s' in cell `%s' "
 			          "does not have a parameter named '%s'.\n",
 			          cell.type.unescape(), &module, &cell,
 			          RTLIL::unescape_id(param_name));
@@ -541,7 +541,7 @@ bool expand_module(RTLIL::Design *design, RTLIL::Module *module, bool flag_check
 
 		if (mod->get_blackbox_attribute()) {
 			if (flag_simcheck || (flag_smtcheck && !mod->get_bool_attribute(ID::smtlib2_module)))
-				log_error("Module `%s' referenced in module `%s' in cell `%s' is a blackbox/whitebox module.\n",
+				log_file_error(cell->get_src_location(), "Module `%s' referenced in module `%s' in cell `%s' is a blackbox/whitebox module.\n",
 						cell->type, module->name.str().data(), cell->name);
 
 			// Parametric blackboxes labeled reprocess_after need to be derived
@@ -1344,7 +1344,7 @@ struct HierarchyPass : public Pass {
 				Module *m = design->module(cell->type);
 
 				if (m == nullptr)
-					log_error("Cell %s.%s (%s) has implicit port connections but the module it instantiates is unknown.\n",
+					log_file_error(cell->get_src_location(), "Cell %s.%s (%s) has implicit port connections but the module it instantiates is unknown.\n",
 							module, cell, cell->type.unescape());
 
 				// Need accurate port widths for error checking; so must derive blackboxes with dynamic port widths
@@ -1373,10 +1373,10 @@ struct HierarchyPass : public Pass {
 						continue;
 
 					if (parent_wire == nullptr)
-						log_error("No matching wire for implicit port connection `%s' of cell %s.%s (%s).\n",
+						log_file_error(cell->get_src_location(), "No matching wire for implicit port connection `%s' of cell %s.%s (%s).\n",
 								wire, module, cell, cell->type.unescape());
 					if (parent_wire->width != wire->width)
-						log_error("Width mismatch between wire (%d bits) and port (%d bits) for implicit port connection `%s' of cell %s.%s (%s).\n",
+						log_file_error(cell->get_src_location(), "Width mismatch between wire (%d bits) and port (%d bits) for implicit port connection `%s' of cell %s.%s (%s).\n",
 								parent_wire->width, wire->width,
 								wire, module, cell, cell->type.unescape());
 					cell->setPort(wire->name, parent_wire);
@@ -1589,13 +1589,13 @@ struct HierarchyPass : public Pass {
 						}
 
 						if (!conn.second.is_fully_const() || !w->port_input || w->port_output)
-							log_warning("Resizing cell port %s.%s.%s from %d bits to %d bits.\n", module, cell,
+							log_file_warning(cell->get_src_location(), "Resizing cell port %s.%s.%s from %d bits to %d bits.\n", module, cell,
 									PooledName(design, conn.first).unescape(), GetSize(conn.second), GetSize(sig));
 						cell->setPort(conn.first, sig);
 					}
 
 					if (w->port_output && !w->port_input && sig.has_const())
-						log_error("Output port %s.%s.%s (%s) is connected to constants: %s\n",
+						log_file_error(cell->get_src_location(), "Output port %s.%s.%s (%s) is connected to constants: %s\n",
 								module, cell, PooledName(design, conn.first).unescape(), cell->type.unescape(), log_signal(sig));
 				}
 			}
